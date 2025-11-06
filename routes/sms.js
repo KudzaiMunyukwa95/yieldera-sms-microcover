@@ -1,66 +1,72 @@
 const express = require('express');
 const router = express.Router();
-const smsService = require('../services/smsService');
+const smsReplyService = require('../services/smsReplyService');
+const weatherService = require('../services/weatherService');
 const parser = require('../utils/parser');
 const formatter = require('../utils/formatter');
 
 /**
  * POST /at/sms
  * Handles incoming SMS messages from Africa's Talking
+ * Supports: WEATHER, FORECAST, RAINHISTORY, HELP
  */
 router.post('/sms', async (req, res) => {
   try {
-    const { from, to, text, date, id, cost, networkCode } = req.body;
+    const { from, to, text, date, id } = req.body;
 
-    console.log(`📱 Incoming SMS from ${from}: "${text}"`);
+    console.log(`📱 SMS from ${from}: "${text}"`);
     
     // Validate required fields
     if (!from || !text) {
-      console.error('❌ Missing required SMS fields (from, text)');
+      console.error('❌ Missing required SMS fields');
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Normalize phone number (remove + and spaces)
+    // Clean phone number
     const phoneNumber = from.replace(/[\s+]/g, '');
     
     // Parse the SMS command
-    const parsedCommand = parser.parseSMSCommand(text);
+    const parsedCommand = parser.parseWeatherCommand(text);
     
     if (!parsedCommand.isValid) {
-      console.log(`⚠️ Invalid command from ${phoneNumber}: ${parsedCommand.error}`);
+      console.log(`⚠️  Invalid command from ${phoneNumber}: ${parsedCommand.error}`);
       
       const helpMessage = formatter.formatHelpMessage();
-      await smsService.sendSMS(phoneNumber, helpMessage);
+      await smsReplyService.sendSMS(phoneNumber, helpMessage);
       
       return res.json({ status: 'help_sent' });
     }
 
-    console.log(`✅ Valid command parsed:`, parsedCommand);
+    console.log(`✅ Valid command:`, parsedCommand);
 
-    // Route to appropriate handler based on command type
+    // Route to weather handlers
     let response;
     
     switch (parsedCommand.command) {
       case 'WEATHER':
-        response = await handleWeatherRequest(parsedCommand, phoneNumber);
+        response = await handleCurrentWeather(parsedCommand);
         break;
         
-      case 'QUOTE':
-        response = await handleQuoteRequest(parsedCommand, phoneNumber);
+      case 'FORECAST':
+        response = await handleForecast(parsedCommand);
         break;
         
-      case 'PLANTING':
-        response = await handlePlantingRequest(parsedCommand, phoneNumber);
+      case 'RAINHISTORY':
+        response = await handleRainHistory(parsedCommand);
+        break;
+        
+      case 'HELP':
+        response = formatter.formatHelpMessage();
         break;
         
       default:
-        throw new Error(`Unhandled command type: ${parsedCommand.command}`);
+        response = formatter.formatErrorMessage();
     }
 
-    console.log(`📤 Sending response to ${phoneNumber}: "${response}"`);
+    console.log(`📤 Sending to ${phoneNumber}: "${response}"`);
     
     // Send SMS response
-    await smsService.sendSMS(phoneNumber, response);
+    await smsReplyService.sendSMS(phoneNumber, response);
     
     res.json({ 
       status: 'success', 
@@ -70,14 +76,13 @@ router.post('/sms', async (req, res) => {
 
   } catch (error) {
     console.error('❌ SMS processing error:', error.message);
-    console.error('Stack:', error.stack);
     
-    // Send error message to user if we have their phone number
+    // Send error message to user
     try {
       if (req.body.from) {
         const phoneNumber = req.body.from.replace(/[\s+]/g, '');
         const errorMessage = formatter.formatErrorMessage();
-        await smsService.sendSMS(phoneNumber, errorMessage);
+        await smsReplyService.sendSMS(phoneNumber, errorMessage);
       }
     } catch (smsError) {
       console.error('❌ Failed to send error SMS:', smsError.message);
@@ -91,37 +96,48 @@ router.post('/sms', async (req, res) => {
 });
 
 /**
- * Handle weather request
+ * Handle current weather request
  */
-async function handleWeatherRequest(parsedCommand, phoneNumber) {
+async function handleCurrentWeather(parsedCommand) {
   const { lat, lng } = parsedCommand.coordinates;
-  const flaskService = require('../services/flaskService');
   
-  const weatherData = await flaskService.getWeather(lat, lng);
-  return formatter.formatWeatherResponse(weatherData);
+  try {
+    const weatherData = await weatherService.getCurrentWeather(lat, lng);
+    return formatter.formatCurrentWeather(weatherData);
+  } catch (error) {
+    console.error('❌ Current weather error:', error.message);
+    return formatter.formatErrorMessage();
+  }
 }
 
 /**
- * Handle insurance quote request
+ * Handle 7-day forecast request
  */
-async function handleQuoteRequest(parsedCommand, phoneNumber) {
+async function handleForecast(parsedCommand) {
   const { lat, lng } = parsedCommand.coordinates;
-  const { crop } = parsedCommand;
-  const flaskService = require('../services/flaskService');
   
-  const quoteData = await flaskService.getInsuranceQuote(lat, lng, crop);
-  return formatter.formatQuoteResponse(quoteData, crop);
+  try {
+    const forecastData = await weatherService.getForecast(lat, lng);
+    return formatter.formatForecast(forecastData);
+  } catch (error) {
+    console.error('❌ Forecast error:', error.message);
+    return formatter.formatErrorMessage();
+  }
 }
 
 /**
- * Handle planting window request
+ * Handle rainfall history request
  */
-async function handlePlantingRequest(parsedCommand, phoneNumber) {
+async function handleRainHistory(parsedCommand) {
   const { lat, lng } = parsedCommand.coordinates;
-  const flaskService = require('../services/flaskService');
   
-  const plantingData = await flaskService.getPlantingWindow(lat, lng);
-  return formatter.formatPlantingResponse(plantingData);
+  try {
+    const historyData = await weatherService.getRainHistory(lat, lng);
+    return formatter.formatRainHistory(historyData);
+  } catch (error) {
+    console.error('❌ Rain history error:', error.message);
+    return formatter.formatErrorMessage();
+  }
 }
 
 module.exports = router;
