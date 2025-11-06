@@ -1,19 +1,18 @@
 {
-  "name": "yieldera-sms-microcover",
-  "version": "1.0.0",
-  "description": "SMS-based agricultural insurance microcover module for Yieldera platform",
+  "name": "yieldera-sms-microcover-weather",
+  "version": "2.0.0",
+  "description": "Weather-only SMS service for farmers using Open-Meteo API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon index.js"
   },
   "keywords": [
     "sms",
-    "agricultural-insurance",
+    "weather",
     "africa-talking",
-    "parametric-insurance",
-    "climate-data"
+    "open-meteo",
+    "agriculture"
   ],
   "author": "Kudzai - Yieldera",
   "license": "MIT",
