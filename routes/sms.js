@@ -1,105 +1,127 @@
-const AfricasTalking = require('africastalking');
+const express = require('express');
+const router = express.Router();
+const smsService = require('../services/smsService');
+const parser = require('../utils/parser');
+const formatter = require('../utils/formatter');
 
-// Initialize Africa's Talking
-const credentials = {
-  apiKey: process.env.AT_API_KEY,
-  username: process.env.AT_USERNAME
-};
+/**
+ * POST /at/sms
+ * Handles incoming SMS messages from Africa's Talking
+ */
+router.post('/sms', async (req, res) => {
+  try {
+    const { from, to, text, date, id, cost, networkCode } = req.body;
 
-const AT = AfricasTalking(credentials);
-const sms = AT.SMS;
+    console.log(`📱 Incoming SMS from ${from}: "${text}"`);
+    
+    // Validate required fields
+    if (!from || !text) {
+      console.error('❌ Missing required SMS fields (from, text)');
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
 
-class SMSService {
-  /**
-   * Send SMS via Africa's Talking
-   * @param {string} phoneNumber - Recipient phone number
-   * @param {string} message - SMS message content
-   * @param {string} from - Sender ID (optional)
-   * @returns {Promise} - SMS sending result
-   */
-  async sendSMS(phoneNumber, message, from = null) {
-    try {
-      // Validate inputs
-      if (!phoneNumber || !message) {
-        throw new Error('Phone number and message are required');
-      }
-
-      // Ensure message is within SMS limits (160 chars for single SMS)
-      if (message.length > 150) {
-        console.warn(`⚠️ Message length (${message.length}) exceeds recommended limit (150)`);
-        message = message.substring(0, 147) + '...';
-      }
-
-      // Format phone number (ensure it starts with +)
-      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`;
-
-      const options = {
-        to: formattedPhone,
-        message: message,
-        from: from || process.env.DEFAULT_SENDER_ID || null
-      };
-
-      console.log(`📤 Sending SMS to ${formattedPhone}: "${message}"`);
+    // Normalize phone number (remove + and spaces)
+    const phoneNumber = from.replace(/[\s+]/g, '');
+    
+    // Parse the SMS command
+    const parsedCommand = parser.parseSMSCommand(text);
+    
+    if (!parsedCommand.isValid) {
+      console.log(`⚠️ Invalid command from ${phoneNumber}: ${parsedCommand.error}`);
       
-      const response = await sms.send(options);
+      const helpMessage = formatter.formatHelpMessage();
+      await smsService.sendSMS(phoneNumber, helpMessage);
       
-      if (response.SMSMessageData && response.SMSMessageData.Recipients) {
-        const recipient = response.SMSMessageData.Recipients[0];
+      return res.json({ status: 'help_sent' });
+    }
+
+    console.log(`✅ Valid command parsed:`, parsedCommand);
+
+    // Route to appropriate handler based on command type
+    let response;
+    
+    switch (parsedCommand.command) {
+      case 'WEATHER':
+        response = await handleWeatherRequest(parsedCommand, phoneNumber);
+        break;
         
-        if (recipient.status === 'Success') {
-          console.log(`✅ SMS sent successfully to ${formattedPhone}`);
-          console.log(`💰 Cost: ${recipient.cost}, MessageId: ${recipient.messageId}`);
-          
-          return {
-            success: true,
-            messageId: recipient.messageId,
-            cost: recipient.cost,
-            status: recipient.status
-          };
-        } else {
-          console.error(`❌ SMS failed to ${formattedPhone}: ${recipient.status}`);
-          throw new Error(`SMS failed: ${recipient.status}`);
-        }
-      } else {
-        console.error('❌ Unexpected response format from Africa\'s Talking');
-        throw new Error('Unexpected response format from SMS service');
-      }
-
-    } catch (error) {
-      console.error('❌ SMS sending error:', error.message);
-      
-      // Re-throw with more context
-      throw new Error(`Failed to send SMS: ${error.message}`);
+      case 'QUOTE':
+        response = await handleQuoteRequest(parsedCommand, phoneNumber);
+        break;
+        
+      case 'PLANTING':
+        response = await handlePlantingRequest(parsedCommand, phoneNumber);
+        break;
+        
+      default:
+        throw new Error(`Unhandled command type: ${parsedCommand.command}`);
     }
-  }
 
-  /**
-   * Validate Africa's Talking configuration
-   * @returns {boolean} - True if properly configured
-   */
-  isConfigured() {
-    return !!(process.env.AT_USERNAME && process.env.AT_API_KEY);
-  }
+    console.log(`📤 Sending response to ${phoneNumber}: "${response}"`);
+    
+    // Send SMS response
+    await smsService.sendSMS(phoneNumber, response);
+    
+    res.json({ 
+      status: 'success', 
+      command: parsedCommand.command,
+      response_length: response.length 
+    });
 
-  /**
-   * Get account balance (if needed for monitoring)
-   * @returns {Promise} - Account balance data
-   */
-  async getBalance() {
+  } catch (error) {
+    console.error('❌ SMS processing error:', error.message);
+    console.error('Stack:', error.stack);
+    
+    // Send error message to user if we have their phone number
     try {
-      const application = AT.APPLICATION;
-      const response = await application.fetchApplicationData();
-      
-      return {
-        balance: response.UserData.balance,
-        currency: 'USD' // Africa's Talking typically uses USD
-      };
-    } catch (error) {
-      console.error('❌ Failed to fetch balance:', error.message);
-      throw new Error(`Failed to fetch account balance: ${error.message}`);
+      if (req.body.from) {
+        const phoneNumber = req.body.from.replace(/[\s+]/g, '');
+        const errorMessage = formatter.formatErrorMessage();
+        await smsService.sendSMS(phoneNumber, errorMessage);
+      }
+    } catch (smsError) {
+      console.error('❌ Failed to send error SMS:', smsError.message);
     }
+    
+    res.status(500).json({ 
+      error: 'SMS processing failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
+});
+
+/**
+ * Handle weather request
+ */
+async function handleWeatherRequest(parsedCommand, phoneNumber) {
+  const { lat, lng } = parsedCommand.coordinates;
+  const flaskService = require('../services/flaskService');
+  
+  const weatherData = await flaskService.getWeather(lat, lng);
+  return formatter.formatWeatherResponse(weatherData);
 }
 
-// Export singleton instance
-module.exports = new SMSService();
+/**
+ * Handle insurance quote request
+ */
+async function handleQuoteRequest(parsedCommand, phoneNumber) {
+  const { lat, lng } = parsedCommand.coordinates;
+  const { crop } = parsedCommand;
+  const flaskService = require('../services/flaskService');
+  
+  const quoteData = await flaskService.getInsuranceQuote(lat, lng, crop);
+  return formatter.formatQuoteResponse(quoteData, crop);
+}
+
+/**
+ * Handle planting window request
+ */
+async function handlePlantingRequest(parsedCommand, phoneNumber) {
+  const { lat, lng } = parsedCommand.coordinates;
+  const flaskService = require('../services/flaskService');
+  
+  const plantingData = await flaskService.getPlantingWindow(lat, lng);
+  return formatter.formatPlantingResponse(plantingData);
+}
+
+module.exports = router;
