@@ -10,7 +10,6 @@ const AT = AfricasTalking(credentials);
 const sms = AT.SMS;
 
 class SMSReplyService {
-
   async sendSMS(phoneNumber, message) {
     try {
       if (!phoneNumber || !message) {
@@ -35,13 +34,11 @@ class SMSReplyService {
       };
 
       console.log(`📤 Sending SMS to ${formattedPhone}: "${message}"`);
-
+      
       const response = await sms.send(options);
-
       console.log("✅ Africa's Talking SMS Response:", JSON.stringify(response, null, 2));
 
       const recipient = response.SMSMessageData?.Recipients?.[0];
-
       if (recipient?.status === "Success") {
         return {
           success: true,
