@@ -4,8 +4,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
 
-const smsRoutes = require('./src/routes/sms');
-const dlrRoutes = require('./src/routes/dlr');
+const smsRoutes = require('./routes/sms');
+const dlrRoutes = require('./routes/dlr');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
