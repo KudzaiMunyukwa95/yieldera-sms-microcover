@@ -4,20 +4,16 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
 
-const smsRoutes = require('./routes/sms');
-const dlrRoutes = require('./routes/dlr');
+const smsRoutes = require('./src/routes/sms');
+const dlrRoutes = require('./src/routes/dlr');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Security middleware
+// Security and middleware
 app.use(helmet());
 app.use(cors());
-
-// Logging middleware
 app.use(morgan('combined'));
-
-// Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -25,9 +21,9 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
-    service: 'Yieldera SMS MicroCover',
+    service: 'Yieldera Weather SMS Service',
     timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version || '1.0.0'
+    version: '2.0.0'
   });
 });
 
@@ -38,24 +34,31 @@ app.use('/at', dlrRoutes);
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    message: 'Yieldera SMS MicroCover Module',
-    description: 'Agricultural insurance SMS service powered by climate intelligence',
+    message: 'Yieldera Weather SMS Service',
+    description: 'Simple weather SMS service for African farmers',
+    version: '2.0.0',
     endpoints: {
       health: '/health',
       sms: '/at/sms',
       dlr: '/at/dlr'
-    }
+    },
+    commands: [
+      'WEATHER lat,lng',
+      'FORECAST lat,lng', 
+      'RAINHISTORY lat,lng',
+      'HELP'
+    ]
   });
 });
 
-// Error handling middleware
+// Error handling
 app.use((err, req, res, next) => {
-  console.error('Error:', err.message);
+  console.error('❌ Error:', err.message);
   console.error('Stack:', err.stack);
   
   res.status(err.status || 500).json({
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    error: 'Service error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Try again later'
   });
 });
 
@@ -63,27 +66,27 @@ app.use((err, req, res, next) => {
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Endpoint not found',
-    path: req.originalUrl,
-    method: req.method
+    available: ['/health', '/at/sms', '/at/dlr']
   });
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Yieldera SMS MicroCover Module running on port ${PORT}`);
+  console.log(`🌤️  Yieldera Weather SMS Service running on port ${PORT}`);
   console.log(`📱 SMS endpoint: /at/sms`);
   console.log(`📊 DLR endpoint: /at/dlr`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌦️  Weather API: ${process.env.WEATHER_BASE || 'https://api.open-meteo.com'}`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('🔄 Received SIGTERM, shutting down gracefully...');
+  console.log('🔄 Shutting down gracefully...');
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('🔄 Received SIGINT, shutting down gracefully...');
+  console.log('🔄 Shutting down gracefully...');
   process.exit(0);
 });
 
