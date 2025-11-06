@@ -1,6 +1,6 @@
 {
-  "name": "yieldera-sms-microcover-weather",
-  "version": "2.0.0",
+  "name": "yieldera-weather-only-sms",
+  "version": "3.0.0",
   "description": "Weather-only SMS service for farmers using Open-Meteo API",
   "main": "index.js",
   "scripts": {
