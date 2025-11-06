@@ -8,25 +8,39 @@ const formatter = require('../utils/formatter');
 /**
  * POST /at/sms
  * Handles incoming SMS messages from Africa's Talking
+ * Supports both Production and Sandbox payload formats
  * Supports: WEATHER, FORECAST, RAINHISTORY, HELP
  */
 router.post('/sms', async (req, res) => {
   try {
-    const { from, to, text, date, id } = req.body;
+    // Debug: Log raw incoming payload
+    console.log("📥 Raw incoming SMS payload:", JSON.stringify(req.body, null, 2));
 
-    console.log(`📱 SMS from ${from}: "${text}"`);
+    // Handle both Production and Sandbox payload formats
+    const fromNumber = req.body.from || req.body.phoneNumber || null;
+    const messageText = req.body.text || null;
+    const shortcode = req.body.to || req.body.shortCode || null;
+    const messageDate = req.body.date || new Date().toISOString();
+    const messageId = req.body.id || req.body.messageId || 'sandbox-msg';
+
+    console.log(`📱 SMS from ${fromNumber} to ${shortcode}: "${messageText}"`);
     
     // Validate required fields
-    if (!from || !text) {
-      console.error('❌ Missing required SMS fields');
+    if (!fromNumber || !messageText) {
+      console.error('❌ Missing required SMS fields (from/phoneNumber or text)');
+      console.error('❌ Received fields:', { 
+        from: req.body.from, 
+        phoneNumber: req.body.phoneNumber, 
+        text: req.body.text 
+      });
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Clean phone number
-    const phoneNumber = from.replace(/[\s+]/g, '');
+    const phoneNumber = fromNumber.replace(/[\s+]/g, '');
     
     // Parse the SMS command
-    const parsedCommand = parser.parseWeatherCommand(text);
+    const parsedCommand = parser.parseWeatherCommand(messageText);
     
     if (!parsedCommand.isValid) {
       console.log(`⚠️  Invalid command from ${phoneNumber}: ${parsedCommand.error}`);
@@ -34,7 +48,7 @@ router.post('/sms', async (req, res) => {
       const helpMessage = formatter.formatHelpMessage();
       await smsReplyService.sendSMS(phoneNumber, helpMessage);
       
-      return res.json({ status: 'help_sent' });
+      return res.json({ status: 'help_sent', payload_format: fromNumber.includes('+') ? 'production' : 'sandbox' });
     }
 
     console.log(`✅ Valid command:`, parsedCommand);
@@ -71,18 +85,22 @@ router.post('/sms', async (req, res) => {
     res.json({ 
       status: 'success', 
       command: parsedCommand.command,
-      response_length: response.length 
+      response_length: response.length,
+      payload_format: fromNumber.includes('+') ? 'production' : 'sandbox'
     });
 
   } catch (error) {
     console.error('❌ SMS processing error:', error.message);
+    console.error('❌ Error stack:', error.stack);
     
-    // Send error message to user
+    // Send error message to user using safe field extraction
     try {
-      if (req.body.from) {
-        const phoneNumber = req.body.from.replace(/[\s+]/g, '');
+      const fromNumber = req.body.from || req.body.phoneNumber || null;
+      if (fromNumber) {
+        const phoneNumber = fromNumber.replace(/[\s+]/g, '');
         const errorMessage = formatter.formatErrorMessage();
         await smsReplyService.sendSMS(phoneNumber, errorMessage);
+        console.log(`📤 Error SMS sent to ${phoneNumber}`);
       }
     } catch (smsError) {
       console.error('❌ Failed to send error SMS:', smsError.message);
