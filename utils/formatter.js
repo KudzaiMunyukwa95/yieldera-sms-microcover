@@ -1,175 +1,129 @@
 /**
- * SMS Response Formatter
- * Formats API responses into concise SMS messages (<150 chars)
+ * Weather SMS Response Formatter
+ * Formats weather data into SMS messages (<150 chars)
  */
 
-class SMSFormatter {
+class WeatherFormatter {
   /**
-   * Format weather response for SMS
-   * @param {Object} weatherData - Weather data from Flask API
+   * Format current weather for SMS
+   * @param {Object} weatherData - Current weather data
    * @returns {string} - Formatted SMS message
    */
-  formatWeatherResponse(weatherData) {
+  formatCurrentWeather(weatherData) {
     try {
       if (!weatherData) {
-        return 'Weather data unavailable. Try again later.';
+        return 'Weather data unavailable. Try again.';
       }
 
-      const { 
-        temperature, 
-        humidity, 
-        rainfall, 
-        conditions,
-        forecast 
-      } = weatherData;
+      const { temperature, precipitation, wind_speed, humidity } = weatherData;
 
-      let message = '';
-
-      // Current conditions
-      if (temperature && humidity) {
-        message += `${Math.round(temperature)}°C, ${Math.round(humidity)}% humidity`;
-      }
-
-      // Rainfall
-      if (rainfall !== undefined) {
-        if (rainfall > 0) {
-          message += `, ${rainfall}mm rain`;
-        } else {
-          message += ', dry';
-        }
-      }
-
-      // Brief forecast if available
-      if (forecast && forecast.summary) {
-        message += `. ${forecast.summary.substring(0, 30)}`;
-      }
-
-      // Add location context if available
-      if (weatherData.location) {
-        message += ` (${weatherData.location})`;
-      }
-
-      return this.truncateMessage(message) || 'Weather data available. Check conditions.';
-
-    } catch (error) {
-      console.error('❌ Weather formatting error:', error.message);
-      return 'Weather data format error. Contact support.';
-    }
-  }
-
-  /**
-   * Format insurance quote response for SMS
-   * @param {Object} quoteData - Quote data from Flask API
-   * @param {string} crop - Crop type
-   * @returns {string} - Formatted SMS message
-   */
-  formatQuoteResponse(quoteData, crop) {
-    try {
-      if (!quoteData || !quoteData.premium) {
-        return `${crop} insurance quote unavailable. Try again.`;
-      }
-
-      const {
-        premium,
-        coverage,
-        risk_level,
-        valid_until,
-        currency = 'USD'
-      } = quoteData;
-
-      let message = `${crop} Insurance: `;
+      let message = `Current: ${temperature}°C`;
       
-      // Premium and coverage
-      if (coverage) {
-        message += `${currency}${premium}/${currency}${coverage}`;
+      if (precipitation > 0) {
+        message += `, rain ${precipitation}mm`;
       } else {
-        message += `${currency}${premium} premium`;
+        message += ', dry';
+      }
+      
+      if (wind_speed) {
+        message += `, wind ${wind_speed}km/h`;
       }
 
-      // Risk level
-      if (risk_level) {
-        const risk = risk_level.toLowerCase();
-        if (risk === 'low') message += ' (Low Risk)';
-        else if (risk === 'medium') message += ' (Med Risk)';
-        else if (risk === 'high') message += ' (High Risk)';
+      if (humidity) {
+        message += `, ${humidity}% humidity`;
       }
 
-      // Validity
-      if (valid_until) {
-        const validDate = new Date(valid_until);
-        const days = Math.ceil((validDate - new Date()) / (1000 * 60 * 60 * 24));
-        if (days > 0) {
-          message += ` Valid ${days}d`;
-        }
-      }
+      message += '.';
 
       return this.truncateMessage(message);
 
     } catch (error) {
-      console.error('❌ Quote formatting error:', error.message);
-      return `${crop} quote error. Contact support for assistance.`;
+      console.error('❌ Current weather formatting error:', error.message);
+      return 'Weather format error. Try again.';
     }
   }
 
   /**
-   * Format planting window response for SMS
-   * @param {Object} plantingData - Planting data from Flask API
+   * Format 7-day forecast for SMS
+   * @param {Object} forecastData - Forecast data
    * @returns {string} - Formatted SMS message
    */
-  formatPlantingResponse(plantingData) {
+  formatForecast(forecastData) {
     try {
-      if (!plantingData) {
-        return 'Planting window data unavailable. Try again.';
+      if (!forecastData || !forecastData.dates) {
+        return 'Forecast unavailable. Try again.';
       }
 
-      const {
-        optimal_start,
-        optimal_end,
-        risk_level,
-        rainfall_outlook,
-        recommendation
-      } = plantingData;
+      const { dates, precipitation, max_temps } = forecastData;
 
-      let message = 'Planting: ';
+      let message = '7-day forecast: ';
+      let dailyForecasts = [];
 
-      // Optimal window
-      if (optimal_start && optimal_end) {
-        const start = new Date(optimal_start);
-        const end = new Date(optimal_end);
-        const startMonth = start.toLocaleDateString('en', { month: 'short' });
-        const endMonth = end.toLocaleDateString('en', { month: 'short' });
-        
-        if (startMonth === endMonth) {
-          message += `${startMonth} ${start.getDate()}-${end.getDate()}`;
+      for (let i = 0; i < Math.min(7, dates.length); i++) {
+        const date = new Date(dates[i]);
+        const dayName = this.getDayName(date, i);
+        const rain = Math.round(precipitation[i] || 0);
+        const temp = Math.round(max_temps[i] || 0);
+
+        if (rain > 0) {
+          dailyForecasts.push(`${dayName} ${rain}mm/${temp}°C`);
         } else {
-          message += `${startMonth} ${start.getDate()}-${endMonth} ${end.getDate()}`;
+          dailyForecasts.push(`${dayName} dry/${temp}°C`);
         }
       }
 
-      // Risk and outlook
-      if (risk_level) {
-        const risk = risk_level.toLowerCase();
-        if (risk === 'optimal') message += ' (Optimal)';
-        else if (risk === 'good') message += ' (Good)';
-        else if (risk === 'fair') message += ' (Fair)';
-        else if (risk === 'poor') message += ' (Poor)';
-      }
+      // Take first 3-4 days to fit in SMS
+      const maxDays = Math.min(4, dailyForecasts.length);
+      message += dailyForecasts.slice(0, maxDays).join(', ');
 
-      // Brief recommendation
-      if (recommendation && recommendation.length < 50) {
-        message += `. ${recommendation}`;
-      } else if (rainfall_outlook) {
-        const outlook = rainfall_outlook.toLowerCase();
-        if (outlook.includes('above')) message += '. Good rains expected';
-        else if (outlook.includes('below')) message += '. Low rains expected';
-        else if (outlook.includes('normal')) message += '. Normal rains expected';
+      if (dailyForecasts.length > maxDays) {
+        message += '...';
       }
 
       return this.truncateMessage(message);
 
     } catch (error) {
-      console.error('❌ Planting formatting error:', error.message);
-      return 'Planting window error. Contact support.';
+      console.error('❌ Forecast formatting error:', error.message);
+      return 'Forecast format error. Try again.';
+    }
+  }
+
+  /**
+   * Format rainfall history for SMS
+   * @param {Object} historyData - Historical rainfall data
+   * @returns {string} - Formatted SMS message
+   */
+  formatRainHistory(historyData) {
+    try {
+      if (!historyData || !historyData.precipitation) {
+        return 'Rainfall history unavailable. Try again.';
+      }
+
+      const { precipitation, total } = historyData;
+      const totalRain = Math.round((total || 0) * 10) / 10;
+
+      let message = `Last 7 days rainfall: ${totalRain}mm total. `;
+
+      // Find days with significant rainfall (>1mm)
+      const rainDays = precipitation
+        .map((rain, index) => ({ day: index + 1, amount: Math.round(rain * 10) / 10 }))
+        .filter(day => day.amount > 1)
+        .slice(-3); // Last 3 rain days
+
+      if (rainDays.length > 0) {
+        const rainSummary = rainDays
+          .map(day => `Day ${day.day}: ${day.amount}mm`)
+          .join(', ');
+        message += rainSummary;
+      } else {
+        message += 'Mostly dry period.';
+      }
+
+      return this.truncateMessage(message);
+
+    } catch (error) {
+      console.error('❌ Rain history formatting error:', error.message);
+      return 'Rain history format error. Try again.';
     }
   }
 
@@ -178,11 +132,11 @@ class SMSFormatter {
    * @returns {string} - Help message
    */
   formatHelpMessage() {
-    return 'Yieldera SMS Commands:\n' +
-           'WEATHER -18.4,30.8\n' +
-           'QUOTE MAIZE -18.4,30.8\n' +
-           'PLANTING -18.4,30.8\n' +
-           'Replace coords with your location.';
+    return 'Weather SMS Commands:\n' +
+           'WEATHER lat,lng - Current conditions\n' +
+           'FORECAST lat,lng - 7-day forecast\n' +
+           'RAINHISTORY lat,lng - Past 7 days rain\n' +
+           'Example: WEATHER -18.4,30.8';
   }
 
   /**
@@ -190,95 +144,21 @@ class SMSFormatter {
    * @returns {string} - Error message
    */
   formatErrorMessage() {
-    return 'Service temporarily unavailable. Please try again in a few minutes or contact support.';
+    return 'Service error. Try again later or send HELP for commands.';
   }
 
   /**
-   * Format NDVI/vegetation response for SMS
-   * @param {Object} ndviData - NDVI data from Flask API
-   * @returns {string} - Formatted SMS message
+   * Get day name for forecast
+   * @param {Date} date - Date object
+   * @param {number} index - Day index (0 = today)
+   * @returns {string} - Day name
    */
-  formatNDVIResponse(ndviData) {
-    try {
-      if (!ndviData || ndviData.ndvi === undefined) {
-        return 'Vegetation data unavailable. Try again later.';
-      }
-
-      const { ndvi, health_status, change_trend } = ndviData;
-
-      let message = `Vegetation: `;
-
-      // NDVI value and health
-      if (health_status) {
-        const health = health_status.toLowerCase();
-        if (health === 'excellent') message += 'Excellent';
-        else if (health === 'good') message += 'Good';  
-        else if (health === 'fair') message += 'Fair';
-        else if (health === 'poor') message += 'Poor';
-        else if (health === 'stressed') message += 'Stressed';
-      } else {
-        message += `NDVI ${ndvi.toFixed(2)}`;
-      }
-
-      // Trend
-      if (change_trend) {
-        const trend = change_trend.toLowerCase();
-        if (trend === 'improving') message += ' (Improving)';
-        else if (trend === 'declining') message += ' (Declining)';
-        else if (trend === 'stable') message += ' (Stable)';
-      }
-
-      return this.truncateMessage(message);
-
-    } catch (error) {
-      console.error('❌ NDVI formatting error:', error.message);
-      return 'Vegetation data error. Contact support.';
-    }
-  }
-
-  /**
-   * Format drought risk response for SMS
-   * @param {Object} droughtData - Drought data from Flask API
-   * @returns {string} - Formatted SMS message
-   */
-  formatDroughtResponse(droughtData) {
-    try {
-      if (!droughtData) {
-        return 'Drought risk data unavailable. Try again.';
-      }
-
-      const { risk_level, severity, outlook, recommendation } = droughtData;
-
-      let message = 'Drought Risk: ';
-
-      // Risk level
-      if (risk_level) {
-        const risk = risk_level.toLowerCase();
-        if (risk === 'low') message += 'Low';
-        else if (risk === 'moderate') message += 'Moderate';  
-        else if (risk === 'high') message += 'High';
-        else if (risk === 'severe') message += 'Severe';
-      }
-
-      // Outlook
-      if (outlook) {
-        const out = outlook.toLowerCase();
-        if (out.includes('improving')) message += ' (Improving)';
-        else if (out.includes('worsening')) message += ' (Worsening)';
-        else if (out.includes('stable')) message += ' (Stable)';
-      }
-
-      // Brief recommendation
-      if (recommendation && recommendation.length < 40) {
-        message += `. ${recommendation}`;
-      }
-
-      return this.truncateMessage(message);
-
-    } catch (error) {
-      console.error('❌ Drought formatting error:', error.message);
-      return 'Drought risk error. Contact support.';
-    }
+  getDayName(date, index) {
+    if (index === 0) return 'Today';
+    if (index === 1) return 'Tomorrow';
+    
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return days[date.getDay()];
   }
 
   /**
@@ -306,22 +186,39 @@ class SMSFormatter {
   }
 
   /**
-   * Format currency amount
-   * @param {number} amount - Amount
-   * @param {string} currency - Currency code
-   * @returns {string} - Formatted amount
+   * Format temperature with units
+   * @param {number} temp - Temperature value
+   * @param {string} unit - Temperature unit
+   * @returns {string} - Formatted temperature
    */
-  formatCurrency(amount, currency = 'USD') {
-    if (currency === 'USD') return `$${amount}`;
-    if (currency === 'ZWL') return `Z$${amount}`;
-    if (currency === 'BWP') return `P${amount}`;
-    if (currency === 'ZMW') return `K${amount}`;
-    if (currency === 'TZS') return `TSh${amount}`;
-    if (currency === 'MWK') return `MK${amount}`;
-    
-    return `${currency}${amount}`;
+  formatTemperature(temp, unit = '°C') {
+    if (temp === null || temp === undefined) return 'N/A';
+    return `${Math.round(temp)}${unit}`;
+  }
+
+  /**
+   * Format precipitation with units
+   * @param {number} rain - Precipitation value
+   * @param {string} unit - Precipitation unit
+   * @returns {string} - Formatted precipitation
+   */
+  formatPrecipitation(rain, unit = 'mm') {
+    if (rain === null || rain === undefined) return '0mm';
+    const rounded = Math.round(rain * 10) / 10;
+    return `${rounded}${unit}`;
+  }
+
+  /**
+   * Format wind speed with units
+   * @param {number} wind - Wind speed value
+   * @param {string} unit - Wind speed unit
+   * @returns {string} - Formatted wind speed
+   */
+  formatWindSpeed(wind, unit = 'km/h') {
+    if (wind === null || wind === undefined) return 'N/A';
+    return `${Math.round(wind)}${unit}`;
   }
 }
 
 // Export singleton instance
-module.exports = new SMSFormatter();
+module.exports = new WeatherFormatter();
