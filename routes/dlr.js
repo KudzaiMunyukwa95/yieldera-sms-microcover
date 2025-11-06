@@ -42,15 +42,4 @@ router.post('/dlr', (req, res) => {
   }
 });
 
-/**
- * GET /at/dlr/stats
- * Basic stats endpoint
- */
-router.get('/dlr/stats', (req, res) => {
-  res.json({
-    message: 'Weather SMS Service - Delivery Stats',
-    note: 'Connect to database for real statistics'
-  });
-});
-
 module.exports = router;
