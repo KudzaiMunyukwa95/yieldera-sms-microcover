@@ -9,7 +9,7 @@ const formatter = require('../utils/formatter');
  * POST /at/sms
  * Handles incoming SMS messages from Africa's Talking
  * Supports both Production and Sandbox payload formats
- * Supports: WEATHER, FORECAST, RAINHISTORY, HELP
+ * WEATHER command only: WEATHER lat,lng
  */
 router.post('/sms', async (req, res) => {
   try {
@@ -39,42 +39,28 @@ router.post('/sms', async (req, res) => {
     // Clean phone number
     const phoneNumber = fromNumber.replace(/[\s+]/g, '');
     
-    // Parse the SMS command
+    // Parse the WEATHER command only
     const parsedCommand = parser.parseWeatherCommand(messageText);
     
     if (!parsedCommand.isValid) {
       console.log(`⚠️  Invalid command from ${phoneNumber}: ${parsedCommand.error}`);
       
-      const helpMessage = formatter.formatHelpMessage();
-      await smsReplyService.sendSMS(phoneNumber, helpMessage);
+      // Send error message for invalid commands
+      await smsReplyService.sendSMS(phoneNumber, "Send WEATHER lat,lng");
       
-      return res.json({ status: 'help_sent', payload_format: fromNumber.includes('+') ? 'production' : 'sandbox' });
+      return res.json({ status: 'invalid_command_help_sent' });
     }
 
-    console.log(`✅ Valid command:`, parsedCommand);
+    console.log(`✅ Valid WEATHER command:`, parsedCommand);
 
-    // Route to weather handlers
+    // Handle WEATHER request
     let response;
-    
-    switch (parsedCommand.command) {
-      case 'WEATHER':
-        response = await handleCurrentWeather(parsedCommand);
-        break;
-        
-      case 'FORECAST':
-        response = await handleForecast(parsedCommand);
-        break;
-        
-      case 'RAINHISTORY':
-        response = await handleRainHistory(parsedCommand);
-        break;
-        
-      case 'HELP':
-        response = formatter.formatHelpMessage();
-        break;
-        
-      default:
-        response = formatter.formatErrorMessage();
+    try {
+      const weatherData = await weatherService.getCurrentWeather(parsedCommand.lat, parsedCommand.lng);
+      response = formatter.formatWeatherResponse(weatherData, parsedCommand.lat, parsedCommand.lng);
+    } catch (error) {
+      console.error('❌ Weather API error:', error.message);
+      response = "Weather temporarily unavailable. Try again.";
     }
 
     console.log(`📤 Sending to ${phoneNumber}: "${response}"`);
@@ -83,10 +69,8 @@ router.post('/sms', async (req, res) => {
     await smsReplyService.sendSMS(phoneNumber, response);
     
     res.json({ 
-      status: 'success', 
-      command: parsedCommand.command,
-      response_length: response.length,
-      payload_format: fromNumber.includes('+') ? 'production' : 'sandbox'
+      status: 'success',
+      response_length: response.length
     });
 
   } catch (error) {
@@ -98,8 +82,7 @@ router.post('/sms', async (req, res) => {
       const fromNumber = req.body.from || req.body.phoneNumber || null;
       if (fromNumber) {
         const phoneNumber = fromNumber.replace(/[\s+]/g, '');
-        const errorMessage = formatter.formatErrorMessage();
-        await smsReplyService.sendSMS(phoneNumber, errorMessage);
+        await smsReplyService.sendSMS(phoneNumber, "Weather temporarily unavailable. Try again.");
         console.log(`📤 Error SMS sent to ${phoneNumber}`);
       }
     } catch (smsError) {
@@ -112,50 +95,5 @@ router.post('/sms', async (req, res) => {
     });
   }
 });
-
-/**
- * Handle current weather request
- */
-async function handleCurrentWeather(parsedCommand) {
-  const { lat, lng } = parsedCommand.coordinates;
-  
-  try {
-    const weatherData = await weatherService.getCurrentWeather(lat, lng);
-    return formatter.formatCurrentWeather(weatherData);
-  } catch (error) {
-    console.error('❌ Current weather error:', error.message);
-    return formatter.formatErrorMessage();
-  }
-}
-
-/**
- * Handle 7-day forecast request
- */
-async function handleForecast(parsedCommand) {
-  const { lat, lng } = parsedCommand.coordinates;
-  
-  try {
-    const forecastData = await weatherService.getForecast(lat, lng);
-    return formatter.formatForecast(forecastData);
-  } catch (error) {
-    console.error('❌ Forecast error:', error.message);
-    return formatter.formatErrorMessage();
-  }
-}
-
-/**
- * Handle rainfall history request
- */
-async function handleRainHistory(parsedCommand) {
-  const { lat, lng } = parsedCommand.coordinates;
-  
-  try {
-    const historyData = await weatherService.getRainHistory(lat, lng);
-    return formatter.formatRainHistory(historyData);
-  } catch (error) {
-    console.error('❌ Rain history error:', error.message);
-    return formatter.formatErrorMessage();
-  }
-}
 
 module.exports = router;
